@@ -1,0 +1,19 @@
+[
+    {
+        "ifid": "ZCODE-1-200427-0000",
+        "sections": [
+            {
+                "name": "Test question",
+                "subsections": [
+                    {
+                        "name": "Test subsection",
+                        "clues": [
+                            "Clue 1",
+                            "Clue 2"
+                        ]
+                    }
+                ]
+            }
+        ]
+    }
+]
