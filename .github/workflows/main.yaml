@@ -14,6 +14,8 @@ jobs:
 
     steps:
     - uses: actions/checkout@v2
+    - name: install packages
+      run: sudo apt-get install libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev
     - name: Lint
       run: cargo clippy -- -D warnings
     - name: Test
