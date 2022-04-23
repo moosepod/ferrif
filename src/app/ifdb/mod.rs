@@ -1017,21 +1017,29 @@ impl IfdbConnection {
 
     /// Return story summary for a particular IFID, or None
     pub fn get_story_summary_by_ifid(&self, ifid: &str) -> Result<Option<StorySummary>, String> {
-        if let Ok(Some(story_id)) = self.get_story_id_for_ifid(ifid) {
+        if let Ok(Some(story_id)) = self.get_story_id_for_ifid(ifid, false) {
             return self.get_story_summary_by_id(story_id);
         }
 
         Ok(None)
     }
 
-    /// Return all ifids, linked to stroy data
-    pub fn get_story_id_for_ifid(&self, ifid: &str) -> Result<Option<u32>, String> {
+    /// Return all ifids, linked to story data
+    pub fn get_story_id_for_ifid(
+        &self,
+        ifid: &str,
+        playable_only: bool,
+    ) -> Result<Option<u32>, String> {
         let result = || -> Result<Option<u32>, rusqlite::Error> {
-            let mut statement = self.connection.prepare(
-                "SELECT i.story_id
-                FROM story_ifid i 
-                WHERE i.ifid = ?1",
-            )?;
+            let mut sql = "SELECT i.story_id
+            FROM story_ifid i 
+            WHERE i.ifid = ?1"
+                .to_string();
+            if playable_only {
+                sql.push_str(" AND  story_data is not null");
+            }
+
+            let mut statement = self.connection.prepare(sql.as_str())?;
 
             let mut query = statement.query(params![ifid])?;
             if let Some(row) = query.next()? {
@@ -1054,7 +1062,7 @@ impl IfdbConnection {
         }
 
         for ifid in &story.identification.ifids {
-            if self.get_story_id_for_ifid(ifid.as_str())?.is_some() {
+            if self.get_story_id_for_ifid(ifid.as_str(), true)?.is_some() {
                 return Err(format!("Story data already exists for IFID {}", ifid));
             }
         }
@@ -1514,7 +1522,7 @@ impl IfdbConnection {
     }
     /// Add a cover image for an ifid. Record must exist.
     pub fn store_cover_image(&self, ifid: &str, data: Vec<u8>) -> Result<(), String> {
-        let story_id = self.get_story_id_for_ifid(ifid)?;
+        let story_id = self.get_story_id_for_ifid(ifid, false)?;
         if story_id.is_none() {
             Err(format!("No story found for ifid {}", ifid))
         } else {
@@ -1539,7 +1547,7 @@ impl IfdbConnection {
         data: Vec<u8>,
         default_name: &str,
     ) -> Result<(), String> {
-        let story_id = self.get_story_id_for_ifid(ifid)?;
+        let story_id = self.get_story_id_for_ifid(ifid, false)?;
         if story_id.is_none() {
             let mut story = Story {
                 identification: Identification {
@@ -3253,7 +3261,7 @@ impl IfdbConnection {
         match extract_ifid_from_bytes(&contents) {
             Err(msg) => LoadFileResult::StoryFileFailureGeneral(filename.to_string(), msg),
             Ok(ifid_str) => {
-                if let Ok(Some(_)) = self.get_story_id_for_ifid(ifid_str.as_str()) {
+                if let Ok(Some(_)) = self.get_story_id_for_ifid(ifid_str.as_str(), true) {
                     LoadFileResult::StoryFileFailureDuplicate(filename.to_string(), ifid_str)
                 } else {
                     match self.add_story_data(ifid_str.as_str(), contents, filename) {
