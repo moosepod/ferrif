@@ -559,7 +559,7 @@ fn test_get_story_id_for_ifid() {
     assert_eq!(
         1,
         connection
-            .get_story_id_for_ifid(INITIAL_DATA_IFID)
+            .get_story_id_for_ifid(INITIAL_DATA_IFID, false)
             .unwrap()
             .expect("Failed with error.")
     );
