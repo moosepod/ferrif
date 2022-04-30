@@ -17,8 +17,10 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
+use std::thread;
 use std::fs::File;
 use std::hash::Hash;
+use std::time::Duration;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
@@ -42,6 +44,9 @@ const MIGRATION_12: &str = "0012_save_versions";
 const CUSTOM_THEME: &str = "custom";
 const DARK_THEME: &str = "dark";
 const LIGHT_THEME: &str = "light";
+
+const LOCK_RETRIES: usize = 5;
+const RETRY_DELAY: Duration = Duration::new(0,1_000_000);
 
 // When importing from a zipfile, cancel import if this number of files is hit
 const MAX_SUPPORTED_ZIPFILE_SIZE: usize = 500;
@@ -3412,11 +3417,25 @@ impl IfdbConnection {
                                                                         ) = &subsection["name"]
                                                                         {
                                                                             for clue in clues {
-                                                                                if let Err(msg) = self.add_clue(story_id,section_name.to_string(),subsection_name.to_string(),format!("{}",clue)) {
-                                                                                        results.push(LoadFileResult::ClueFailure(path.clone(),format!("Error loading clue for IFID {}: {}",ifid,msg)));
+                                                                                // Database can be locked if multiple clues being loaded at once. Retry in those cases
+                                                                                let mut retry_count = 0;
+                                                                                let mut loaded = false;
+                                                                                while !loaded && retry_count < LOCK_RETRIES {
+                                                                                    if let Err(msg) = self.add_clue(story_id,section_name.to_string(),subsection_name.to_string(),format!("{}",clue)) {
+                                                                                        if msg.contains("locked") {
+                                                                                            retry_count += 1;
+                                                                                            thread::sleep(RETRY_DELAY);
+                                                                                            if retry_count == LOCK_RETRIES {                                                                                                
+                                                                                                results.push(LoadFileResult::ClueFailure(path.clone(),format!("Error loading clue for IFID {}: {}",ifid,msg)));
+                                                                                            }
+                                                                                        } else {
+                                                                                            results.push(LoadFileResult::ClueFailure(path.clone(),format!("Error loading clue for IFID {}: {}",ifid,msg)));
+                                                                                        }
                                                                                     } else {
                                                                                         clues_added+=1;
+                                                                                        loaded = true;
                                                                                     }
+                                                                                }
                                                                             }
                                                                         }
                                                                     }

@@ -62,26 +62,39 @@ pub fn draw_add_story_window(
             .default_size(DEFAULT_SIZE)
             .default_pos(DEFAULT_POS)
             .show(ctx, |ui| {
+                let mut show_done = false;
+                let mut play_story_ifid = None;
+                for message in &state.messages {
+                    match message {
+                        LoadFileResult::StoryFileSuccess(_, ifid) => {
+                            play_story_ifid = Some(ifid.clone());
+                        }
+                        LoadFileResult::LoadCompleted() => {
+                            show_done = true;
+                        }
+                        _ => {}
+                    }
+                }
+
+                ui.horizontal_wrapped(|buttons_ui| {
+                    if show_done {
+                        if buttons_ui.button("Done").clicked() {
+                            done_clicked = true;
+                        } else if play_story_ifid.is_some() && buttons_ui.button("Play").clicked() {
+                            state.play_story_ifid = play_story_ifid;
+                            done_clicked = true;
+                        }
+                    } else {
+                        buttons_ui.add(egui::Label::new(RichText::new("Loading...").italics()));
+                    }
+                });
+
                 ScrollArea::vertical()
                     .max_height(f32::INFINITY)
                     .show(ui, |scroll_area| {
-                        let mut show_done = false;
-                        for message in &state.messages {
-                            if let LoadFileResult::LoadCompleted() = message {
-                                show_done = true;
-                            }
-                        }
-
-                        if !show_done {
-                            scroll_area
-                                .add(egui::Label::new(RichText::new("Loading...").italics()));
-                        }
-
-                        let mut play_story_ifid = None;
                         for message in &state.messages {
                             match message {
-                                LoadFileResult::StoryFileSuccess(path, ifid) => {
-                                    play_story_ifid = Some(ifid.clone());
+                                LoadFileResult::StoryFileSuccess(path, _) => {
                                     scroll_area.label(format!("Loaded {}", path));
                                 }
                                 LoadFileResult::LoadCompleted() => {
@@ -92,15 +105,6 @@ pub fn draw_add_story_window(
                                 }
                             }
                         }
-                        scroll_area.horizontal_wrapped(|buttons_ui| {
-                            if show_done && buttons_ui.button("Done").clicked() {
-                                done_clicked = true;
-                            }
-                            if play_story_ifid.is_some() && buttons_ui.button("Play").clicked() {
-                                state.play_story_ifid = play_story_ifid;
-                                done_clicked = true;
-                            }
-                        });
                     });
             });
     }
