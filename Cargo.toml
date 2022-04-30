@@ -15,7 +15,7 @@ testmode = []
 [dependencies]
 eframe = "0.17.0" # Gives us egui, epi and web+native backends
 
-zmachine = { git = "https://github.com/moosepod/ferrif-zmachine", branch = "main" }
+zmachine = { git = "https://github.com/moosepod/ferrif-zmachine", branch = "develop" }
 # Change to relative path if developing locally 
 #zmachine = { path = "../ferrif-zmachine" }
 clap = "2"

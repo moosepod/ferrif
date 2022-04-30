@@ -37,6 +37,7 @@ const MIGRATION_8: &str = "0008_settings_additional";
 const MIGRATION_9: &str = "0009_fonts";
 const MIGRATION_10: &str = "0010_themes";
 const MIGRATION_11: &str = "0011_monospace";
+const MIGRATION_12: &str = "0012_save_versions";
 
 const CUSTOM_THEME: &str = "custom";
 const DARK_THEME: &str = "dark";
@@ -128,6 +129,7 @@ impl SaveType {
 #[derive(PartialEq, Debug, Clone, Serialize)]
 pub struct DbSave {
     pub dbid: i64,
+    pub version: i64, // Version of save data. May vary when save logic is changed
     pub ifid: String,
     pub name: String,
     pub saved_when: String, // This field is auto-update only, can be left blank on save
@@ -1644,7 +1646,7 @@ impl IfdbConnection {
     pub fn get_save(&self, ifid: String, name: String) -> Result<Option<DbSave>, String> {
         let result = || -> Result<Option<DbSave>, rusqlite::Error> {
             let mut statement = self.connection.prepare(
-                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, id FROM saves WHERE ifid = ?1 AND name = ?2",
+                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, version, id FROM saves WHERE ifid = ?1 AND name = ?2",
             )?;
             let mut query = statement.query(params![ifid, name])?;
 
@@ -1666,7 +1668,7 @@ impl IfdbConnection {
     pub fn get_save_by_id(&self, ifid: String, dbid: i64) -> Result<Option<DbSave>, String> {
         let result = || -> Result<Option<DbSave>, rusqlite::Error> {
             let mut statement = self.connection.prepare(
-                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, id FROM saves WHERE ifid = ?1 AND id=?2",
+                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id,version, id FROM saves WHERE ifid = ?1 AND id=?2",
             )?;
             let mut query = statement.query(params![ifid, dbid])?;
 
@@ -1688,7 +1690,7 @@ impl IfdbConnection {
         let result = || -> Result<Vec<DbSave>, rusqlite::Error> {
             let mut saves: Vec<DbSave> = Vec::new();
             let mut statement = self.connection.prepare(
-                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, id FROM saves WHERE ifid = ?1 ORDER BY saved_when DESC",
+                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, version, id FROM saves WHERE ifid = ?1 ORDER BY saved_when DESC",
             )?;
             let mut query = statement.query(params![ifid])?;
 
@@ -1710,7 +1712,7 @@ impl IfdbConnection {
         let result = || -> Result<Vec<DbSave>, rusqlite::Error> {
             let mut saves: Vec<DbSave> = Vec::new();
             let mut statement = self.connection.prepare(
-                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id,id FROM saves WHERE ifid = ?1 AND save_type = ?2 ORDER BY saved_when DESC",
+                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id,version,id FROM saves WHERE ifid = ?1 AND save_type = ?2 ORDER BY saved_when DESC",
             )?;
             let mut query = statement.query(params![ifid, SaveType::Normal.to_string()])?;
 
@@ -1769,7 +1771,8 @@ impl IfdbConnection {
         let latest_text: Option<String> = row.get(10)?;
         let room_id = row.get(11)?;
         let parent_id = row.get(12)?;
-        let dbid = row.get(13)?;
+        let version = row.get(13)?;
+        let dbid = row.get(14)?;
 
         Ok(DbSave {
             dbid,
@@ -1787,6 +1790,7 @@ impl IfdbConnection {
             latest_text,
             room_id,
             parent_id,
+            version,
         })
     }
     /// Store the given save data to the database, returning any errors
@@ -1838,9 +1842,9 @@ impl IfdbConnection {
 
             let next_pc: Option<i32> = dbsave.next_pc.map(|v| v as i32);
             self.connection.execute(
-                "INSERT INTO saves (ifid, name, save_type, saved_when, data, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                "INSERT INTO saves (ifid, name, save_type, saved_when, data, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, version) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
                 params![dbsave.ifid, save_name, dbsave.save_type.to_string(), dbsave.saved_when, dbsave.data, dbsave.pc as i32, dbsave.text_buffer_address, dbsave.parse_buffer_address,
-                                    next_pc, dbsave.left_status,dbsave.right_status, dbsave.latest_text, dbsave.room_id, dbsave.parent_id]
+                                    next_pc, dbsave.left_status,dbsave.right_status, dbsave.latest_text, dbsave.room_id, dbsave.parent_id, dbsave.version]
             )?;
 
             let dbid = self.connection.last_insert_rowid();
@@ -2881,6 +2885,10 @@ impl IfdbConnection {
             self.run_migration_11()?;
         }
 
+        if !migrations.contains_key(MIGRATION_12) {
+            self.run_migration_12()?;
+        }
+
         Ok(())
     }
 
@@ -3248,6 +3256,23 @@ impl IfdbConnection {
         self.connection.execute(
             "INSERT INTO migrations (name) VALUES (?1)",
             params![MIGRATION_11],
+        )?;
+
+        Ok(())
+    }
+
+    fn run_migration_12(&self) -> Result<()> {
+        self.connection.execute(
+            "ALTER TABLE saves ADD COLUMN version NOT NULL DEFAULT 1; ",
+            params![],
+        )?;
+
+        self.connection
+            .execute("UPDATE saves SET version=1; ", params![])?;
+
+        self.connection.execute(
+            "INSERT INTO migrations (name) VALUES (?1)",
+            params![MIGRATION_12],
         )?;
 
         Ok(())
