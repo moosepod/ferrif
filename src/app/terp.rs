@@ -37,6 +37,7 @@ use zmachine::vm::{VMState, GLOBAL_1, VM};
 use eguiio::{Eguiio, EguiioState};
 
 const AUTOSAVE_NAME: &str = "autosave";
+const DEFAULT_SAVE_VERSION: i64 = 2;
 
 // Avoid infinite loops caused by bugs by panicing if
 // too many instructions run without prompting
@@ -555,6 +556,12 @@ impl EguiTerp {
                                 } else {
                                     // 8.1.6.3 -- after restore, unsplit window
                                     self.io.split_window(0);
+
+                                    // For version 1 saves, need to manually offset the PC
+                                    // to account for bug where it was being stored incorrectly in save
+                                    if save.version == 1 {
+                                        self.vm.set_pc(save.pc + 1);
+                                    }
                                     Ok(())
                                 }
                             }
@@ -573,6 +580,7 @@ impl EguiTerp {
         // Save window ended in a success, so add the save
         let dbsave = DbSave {
             dbid: 0,
+            version: DEFAULT_SAVE_VERSION,
             ifid: self.ifid.clone(),
             name: save_name,
             saved_when: format!("{}", Utc::now()),
@@ -611,6 +619,7 @@ impl EguiTerp {
 
         let dbsave = DbSave {
             dbid: 0,
+            version: DEFAULT_SAVE_VERSION,
             ifid: self.ifid.clone(),
             name: AUTOSAVE_NAME.to_string(),
             saved_when: format!("{}", Utc::now()),

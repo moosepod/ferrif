@@ -2,7 +2,7 @@
 #![cfg_attr(not(debug_assertions), deny(warnings))] // Forbid warnings in release builds
 #![warn(clippy::all, rust_2018_idioms)]
 // Disable command window opening on launch
-#![windows_subsystem = "windows"]
+#![cfg_attr(not(feature = "testmode"), windows_subsystem = "windows")]
 
 mod app;
 
@@ -23,8 +23,19 @@ enum AppError {
     ConnectionError(String),
 }
 
+// Print text to stdout iff testmode feature is active
+// Useful when creating debug/test builds
+#[macro_export]
+macro_rules! testmode_println {
+    ($expression:expr) => {
+        #[cfg(feature = "testmode")]
+        println!($expression);
+    };
+}
+
 /** Run database migration, if necessary. Will panic if database connection or migration fails */
 fn migrate_database(database_path: &str) -> Result<(), AppError> {
+    testmode_println!("INIT: Running database migrations");
     match IfdbConnection::connect(database_path) {
         Ok(connection) => {
             if connection.migrate().is_err() {
@@ -48,10 +59,13 @@ fn start_terp(
     story_id: Option<&str>,
     use_defaults: bool,
 ) -> Result<(), AppError> {
+    testmode_println!("INIT: Looking for story");
+
     let play_id = find_story_with_id(database_path, story_id)?;
 
     match IfdbConnection::connect(database_path) {
         Ok(connection) => {
+            testmode_println!("INIT: Opening interpreter window");
             let app = FerrifApp::create(connection, play_id, use_defaults);
             let native_options = eframe::NativeOptions::default();
             eframe::run_native(Box::new(app), native_options);
@@ -143,8 +157,12 @@ fn list_stories(database_path: String) -> Result<(), AppError> {
 
     Ok(())
 }
-
 fn main_wrapped() -> Result<(), AppError> {
+    #[cfg(feature = "testmode")]
+    println!(
+        "INIT: Initializing Ferrif version {}",
+        env!("CARGO_PKG_VERSION")
+    );
     let matches = App::new("Ferrif")
         .version("0.1")
         .author("Matthew Christensen <mchristensen@moosepod.com>")
@@ -175,13 +193,6 @@ fn main_wrapped() -> Result<(), AppError> {
             Arg::with_name("list")
                 .long("list")
                 .help("List stories with name and IFID")
-                .required(false)
-                .takes_value(false),
-        )
-        .arg(
-            Arg::with_name("testmode")
-                .long("testmode")
-                .help("Enable assorted features used to test Ferrif")
                 .required(false)
                 .takes_value(false),
         )
@@ -240,6 +251,10 @@ fn main() {
             AppError::ConnectionError(msg) => msg
         };
 
+        #[cfg(feature = "testmode")]
+        println!("Error running app: {}", msg);
+
+        #[cfg(not(feature = "testmode"))]
         MessageDialog::new()
             .set_type(MessageType::Warning)
             .set_title("Error playing story")

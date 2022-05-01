@@ -10,11 +10,14 @@ mod story_load_window;
 
 mod terp;
 
+use crate::testmode_println;
 use eframe::{egui, epi};
 use egui::*;
 use egui::{Pos2, Vec2};
 use ifdb::{IfdbConnection, WindowDetails, WindowType};
 use story_list_window::{draw_story_list, StoryListState};
+
+use num_format::{Locale, ToFormattedString};
 
 // Default ID used for storing details about the main window (as opposed to story windows)
 const MAIN_WINDOW_STORY_ID: u32 = 0;
@@ -59,6 +62,7 @@ impl epi::App for FerrifApp {
     fn name(&self) -> &str {
         "ferrif"
     }
+
     fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
         // The UI is set up so that either the story selector windows are open
         // or the terp windows are open
@@ -66,6 +70,10 @@ impl epi::App for FerrifApp {
         // and eats up space
         if self.initializing {
             self.initialize(frame);
+
+            #[cfg(feature = "testmode")]
+            self.print_state();
+
             // Need to return here because initialize will change the frame size, and calculations will
             // be wrong for window sizes until the next loop
             return;
@@ -110,8 +118,44 @@ impl FerrifApp {
         }
     }
 
+    // Code only used in testmode
+    #[allow(dead_code)]
+    fn print_state(&self) {
+        println!("TERP: Initial state");
+        println!("Database path: {}", self.connection.database_path);
+        println!(
+            "   Main window: {}x{}",
+            self.main_window_details.width, self.main_window_details.height
+        );
+        println!(
+            "   Stories: {}",
+            self.connection
+                .wrap_db_error(self.connection.count_stories())
+                .to_formatted_string(&Locale::en)
+        );
+        println!(
+            "   Saves: {}",
+            self.connection
+                .wrap_db_error(self.connection.count_saves())
+                .to_formatted_string(&Locale::en)
+        );
+        println!(
+            "   Clues: {}",
+            self.connection
+                .wrap_db_error(self.connection.count_clues())
+                .to_formatted_string(&Locale::en)
+        );
+        println!(
+            "   Notes: {}",
+            self.connection
+                .wrap_db_error(self.connection.count_notes())
+                .to_formatted_string(&Locale::en)
+        );
+    }
+
     fn initialize(&mut self, frame: &epi::Frame) {
         // On first time through loop, load main window size from db or create a default
+        testmode_println!("TERP: Initializing window");
         match self
             .connection
             .get_window_details(MAIN_WINDOW_STORY_ID, WindowType::Main)
@@ -129,6 +173,7 @@ impl FerrifApp {
         // On first time through loop, load and restore themes from db
         // unless using defaults
         if !self.use_defaults {
+            testmode_println!("TERP: Restoring window state");
             self.story_list_window_state
                 .restore_themes(&self.connection);
         }
@@ -150,12 +195,14 @@ impl FerrifApp {
         // If story was requested for play, or a story was being played on quit,
         // and defaults are not being used,  load that story first
         if self.play_id.is_none() && !self.use_defaults {
+            testmode_println!("TERP: Looking for story");
             if let Ok(Some(story_id)) = self.connection.get_current_story() {
                 self.play_id = Some(story_id);
             }
         }
 
         if let Some(story_id) = self.play_id {
+            testmode_println!("TERP: Loading story");
             match self.connection.get_story_summary_by_id(story_id as u32) {
                 Ok(story) => match story {
                     Some(story) => {

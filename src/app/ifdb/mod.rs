@@ -17,8 +17,10 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::fmt;
 use std::fs;
+use std::thread;
 use std::fs::File;
 use std::hash::Hash;
+use std::time::Duration;
 use std::io::prelude::*;
 use std::io::BufReader;
 use std::path::Path;
@@ -37,10 +39,14 @@ const MIGRATION_8: &str = "0008_settings_additional";
 const MIGRATION_9: &str = "0009_fonts";
 const MIGRATION_10: &str = "0010_themes";
 const MIGRATION_11: &str = "0011_monospace";
+const MIGRATION_12: &str = "0012_save_versions";
 
 const CUSTOM_THEME: &str = "custom";
 const DARK_THEME: &str = "dark";
 const LIGHT_THEME: &str = "light";
+
+const LOCK_RETRIES: usize = 5;
+const RETRY_DELAY: Duration = Duration::new(0,1_000_000);
 
 // When importing from a zipfile, cancel import if this number of files is hit
 const MAX_SUPPORTED_ZIPFILE_SIZE: usize = 500;
@@ -128,6 +134,7 @@ impl SaveType {
 #[derive(PartialEq, Debug, Clone, Serialize)]
 pub struct DbSave {
     pub dbid: i64,
+    pub version: i64, // Version of save data. May vary when save logic is changed
     pub ifid: String,
     pub name: String,
     pub saved_when: String, // This field is auto-update only, can be left blank on save
@@ -1017,21 +1024,29 @@ impl IfdbConnection {
 
     /// Return story summary for a particular IFID, or None
     pub fn get_story_summary_by_ifid(&self, ifid: &str) -> Result<Option<StorySummary>, String> {
-        if let Ok(Some(story_id)) = self.get_story_id_for_ifid(ifid) {
+        if let Ok(Some(story_id)) = self.get_story_id_for_ifid(ifid, false) {
             return self.get_story_summary_by_id(story_id);
         }
 
         Ok(None)
     }
 
-    /// Return all ifids, linked to stroy data
-    pub fn get_story_id_for_ifid(&self, ifid: &str) -> Result<Option<u32>, String> {
+    /// Return all ifids, linked to story data
+    pub fn get_story_id_for_ifid(
+        &self,
+        ifid: &str,
+        playable_only: bool,
+    ) -> Result<Option<u32>, String> {
         let result = || -> Result<Option<u32>, rusqlite::Error> {
-            let mut statement = self.connection.prepare(
-                "SELECT i.story_id
-                FROM story_ifid i 
-                WHERE i.ifid = ?1",
-            )?;
+            let mut sql = "SELECT i.story_id
+            FROM story_ifid i 
+            WHERE i.ifid = ?1"
+                .to_string();
+            if playable_only {
+                sql.push_str(" AND  story_data is not null");
+            }
+
+            let mut statement = self.connection.prepare(sql.as_str())?;
 
             let mut query = statement.query(params![ifid])?;
             if let Some(row) = query.next()? {
@@ -1054,7 +1069,7 @@ impl IfdbConnection {
         }
 
         for ifid in &story.identification.ifids {
-            if self.get_story_id_for_ifid(ifid.as_str())?.is_some() {
+            if self.get_story_id_for_ifid(ifid.as_str(), true)?.is_some() {
                 return Err(format!("Story data already exists for IFID {}", ifid));
             }
         }
@@ -1514,7 +1529,7 @@ impl IfdbConnection {
     }
     /// Add a cover image for an ifid. Record must exist.
     pub fn store_cover_image(&self, ifid: &str, data: Vec<u8>) -> Result<(), String> {
-        let story_id = self.get_story_id_for_ifid(ifid)?;
+        let story_id = self.get_story_id_for_ifid(ifid, false)?;
         if story_id.is_none() {
             Err(format!("No story found for ifid {}", ifid))
         } else {
@@ -1539,7 +1554,7 @@ impl IfdbConnection {
         data: Vec<u8>,
         default_name: &str,
     ) -> Result<(), String> {
-        let story_id = self.get_story_id_for_ifid(ifid)?;
+        let story_id = self.get_story_id_for_ifid(ifid, false)?;
         if story_id.is_none() {
             let mut story = Story {
                 identification: Identification {
@@ -1636,7 +1651,7 @@ impl IfdbConnection {
     pub fn get_save(&self, ifid: String, name: String) -> Result<Option<DbSave>, String> {
         let result = || -> Result<Option<DbSave>, rusqlite::Error> {
             let mut statement = self.connection.prepare(
-                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, id FROM saves WHERE ifid = ?1 AND name = ?2",
+                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, version, id FROM saves WHERE ifid = ?1 AND name = ?2",
             )?;
             let mut query = statement.query(params![ifid, name])?;
 
@@ -1658,7 +1673,7 @@ impl IfdbConnection {
     pub fn get_save_by_id(&self, ifid: String, dbid: i64) -> Result<Option<DbSave>, String> {
         let result = || -> Result<Option<DbSave>, rusqlite::Error> {
             let mut statement = self.connection.prepare(
-                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, id FROM saves WHERE ifid = ?1 AND id=?2",
+                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id,version, id FROM saves WHERE ifid = ?1 AND id=?2",
             )?;
             let mut query = statement.query(params![ifid, dbid])?;
 
@@ -1680,7 +1695,7 @@ impl IfdbConnection {
         let result = || -> Result<Vec<DbSave>, rusqlite::Error> {
             let mut saves: Vec<DbSave> = Vec::new();
             let mut statement = self.connection.prepare(
-                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, id FROM saves WHERE ifid = ?1 ORDER BY saved_when DESC",
+                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, version, id FROM saves WHERE ifid = ?1 ORDER BY saved_when DESC",
             )?;
             let mut query = statement.query(params![ifid])?;
 
@@ -1702,7 +1717,7 @@ impl IfdbConnection {
         let result = || -> Result<Vec<DbSave>, rusqlite::Error> {
             let mut saves: Vec<DbSave> = Vec::new();
             let mut statement = self.connection.prepare(
-                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id,id FROM saves WHERE ifid = ?1 AND save_type = ?2 ORDER BY saved_when DESC",
+                "SELECT name, saved_when, data, save_type, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id,version,id FROM saves WHERE ifid = ?1 AND save_type = ?2 ORDER BY saved_when DESC",
             )?;
             let mut query = statement.query(params![ifid, SaveType::Normal.to_string()])?;
 
@@ -1761,7 +1776,8 @@ impl IfdbConnection {
         let latest_text: Option<String> = row.get(10)?;
         let room_id = row.get(11)?;
         let parent_id = row.get(12)?;
-        let dbid = row.get(13)?;
+        let version = row.get(13)?;
+        let dbid = row.get(14)?;
 
         Ok(DbSave {
             dbid,
@@ -1779,6 +1795,7 @@ impl IfdbConnection {
             latest_text,
             room_id,
             parent_id,
+            version,
         })
     }
     /// Store the given save data to the database, returning any errors
@@ -1830,9 +1847,9 @@ impl IfdbConnection {
 
             let next_pc: Option<i32> = dbsave.next_pc.map(|v| v as i32);
             self.connection.execute(
-                "INSERT INTO saves (ifid, name, save_type, saved_when, data, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14)",
+                "INSERT INTO saves (ifid, name, save_type, saved_when, data, pc, text_buffer_address, parse_buffer_address, next_pc, left_status, right_status, latest_text, room_id, parent_id, version) VALUES (?1,?2,?3,?4,?5,?6,?7,?8,?9,?10,?11,?12,?13,?14,?15)",
                 params![dbsave.ifid, save_name, dbsave.save_type.to_string(), dbsave.saved_when, dbsave.data, dbsave.pc as i32, dbsave.text_buffer_address, dbsave.parse_buffer_address,
-                                    next_pc, dbsave.left_status,dbsave.right_status, dbsave.latest_text, dbsave.room_id, dbsave.parent_id]
+                                    next_pc, dbsave.left_status,dbsave.right_status, dbsave.latest_text, dbsave.room_id, dbsave.parent_id, dbsave.version]
             )?;
 
             let dbid = self.connection.last_insert_rowid();
@@ -2873,6 +2890,10 @@ impl IfdbConnection {
             self.run_migration_11()?;
         }
 
+        if !migrations.contains_key(MIGRATION_12) {
+            self.run_migration_12()?;
+        }
+
         Ok(())
     }
 
@@ -3245,6 +3266,23 @@ impl IfdbConnection {
         Ok(())
     }
 
+    fn run_migration_12(&self) -> Result<()> {
+        self.connection.execute(
+            "ALTER TABLE saves ADD COLUMN version NOT NULL DEFAULT 1; ",
+            params![],
+        )?;
+
+        self.connection
+            .execute("UPDATE saves SET version=1; ", params![])?;
+
+        self.connection.execute(
+            "INSERT INTO migrations (name) VALUES (?1)",
+            params![MIGRATION_12],
+        )?;
+
+        Ok(())
+    }
+
     ///
     /// Loading data from files
     ///
@@ -3253,7 +3291,7 @@ impl IfdbConnection {
         match extract_ifid_from_bytes(&contents) {
             Err(msg) => LoadFileResult::StoryFileFailureGeneral(filename.to_string(), msg),
             Ok(ifid_str) => {
-                if let Ok(Some(_)) = self.get_story_id_for_ifid(ifid_str.as_str()) {
+                if let Ok(Some(_)) = self.get_story_id_for_ifid(ifid_str.as_str(), true) {
                     LoadFileResult::StoryFileFailureDuplicate(filename.to_string(), ifid_str)
                 } else {
                     match self.add_story_data(ifid_str.as_str(), contents, filename) {
@@ -3379,11 +3417,25 @@ impl IfdbConnection {
                                                                         ) = &subsection["name"]
                                                                         {
                                                                             for clue in clues {
-                                                                                if let Err(msg) = self.add_clue(story_id,section_name.to_string(),subsection_name.to_string(),format!("{}",clue)) {
-                                                                                        results.push(LoadFileResult::ClueFailure(path.clone(),format!("Error loading clue for IFID {}: {}",ifid,msg)));
+                                                                                // Database can be locked if multiple clues being loaded at once. Retry in those cases
+                                                                                let mut retry_count = 0;
+                                                                                let mut loaded = false;
+                                                                                while !loaded && retry_count < LOCK_RETRIES {
+                                                                                    if let Err(msg) = self.add_clue(story_id,section_name.to_string(),subsection_name.to_string(),format!("{}",clue)) {
+                                                                                        if msg.contains("locked") {
+                                                                                            retry_count += 1;
+                                                                                            thread::sleep(RETRY_DELAY);
+                                                                                            if retry_count == LOCK_RETRIES {                                                                                                
+                                                                                                results.push(LoadFileResult::ClueFailure(path.clone(),format!("Error loading clue for IFID {}: {}",ifid,msg)));
+                                                                                            }
+                                                                                        } else {
+                                                                                            results.push(LoadFileResult::ClueFailure(path.clone(),format!("Error loading clue for IFID {}: {}",ifid,msg)));
+                                                                                        }
                                                                                     } else {
                                                                                         clues_added+=1;
+                                                                                        loaded = true;
                                                                                     }
+                                                                                }
                                                                             }
                                                                         }
                                                                     }

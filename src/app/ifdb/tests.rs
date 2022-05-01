@@ -559,7 +559,7 @@ fn test_get_story_id_for_ifid() {
     assert_eq!(
         1,
         connection
-            .get_story_id_for_ifid(INITIAL_DATA_IFID)
+            .get_story_id_for_ifid(INITIAL_DATA_IFID, false)
             .unwrap()
             .expect("Failed with error.")
     );
@@ -1198,6 +1198,7 @@ fn test_add_story_data() {
 fn create_simple_save(save_type: SaveType) -> DbSave {
     DbSave {
         dbid: 0,
+        version: 2,
         ifid: INITIAL_DATA_IFID.to_string(),
         name: String::from("test"),
         saved_when: String::new(),
@@ -1219,6 +1220,7 @@ fn create_simple_save(save_type: SaveType) -> DbSave {
 fn create_full_save(save_type: SaveType) -> DbSave {
     DbSave {
         dbid: 0,
+        version: 2,
         ifid: INITIAL_DATA_IFID.to_string(),
         name: String::from("test 2"),
         saved_when: String::new(),
