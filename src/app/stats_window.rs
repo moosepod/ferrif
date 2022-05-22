@@ -10,8 +10,20 @@ pub fn stats_window_handler(
     _: u32,
 ) {
     ui.label(format!("Version: {}", env!("CARGO_PKG_VERSION")));
+    #[cfg(feature = "testmode")]
+    if cfg!(windows) {
+        ui.label("Test mode: Active");
+        ui.label("Console: Active");
+    } else {
+        ui.label("Test mode: Active");
+    }
+    #[cfg(not(feature = "testmode"))]
+    if cfg!(windows) {
+        ui.label("Console: Disabled");
+    }
+    ui.separator();
 
-    ui.label(format!("Location: {}", connection.database_path));
+    ui.label(format!("Database location: {}", connection.database_path));
 
     let size = match fs::metadata(connection.database_path.clone()) {
         Ok(metadata) => metadata.len(),
