@@ -204,7 +204,10 @@ fn main_wrapped() -> Result<(), AppError> {
                 .takes_value(false),
         )
         .get_matches();
-
+    if matches.is_present("version") {
+        println!("Ferrif version {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     // Pull database path from command line or, if not provided
     // from user home crate
     let mut database_path: String = match matches.value_of("DATABASE_PATH") {

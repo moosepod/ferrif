@@ -9,6 +9,8 @@ pub fn stats_window_handler(
     connection: &IfdbConnection,
     _: u32,
 ) {
+    ui.label(format!("Version: {}", env!("CARGO_PKG_VERSION")));
+
     ui.label(format!("Location: {}", connection.database_path));
 
     let size = match fs::metadata(connection.database_path.clone()) {
