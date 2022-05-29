@@ -1,6 +1,8 @@
 // Note: no separate test for store_save as this is tested as part of the various
 // other save tests
-
+// On windows, be sure to run with the testmode feature set:
+// cargo test --features "testmode"
+// otherwise console output will be disabled
 use super::ifiction::{
     Bibilographic, Colophon, Contacts, Cover, CoverFormat, Forgiveness, Format, IFictionDate,
     Identification, Release, Resource, Story, Zcode,
@@ -1874,6 +1876,32 @@ fn test_data_path(filename: &str) -> String {
     d.push("resources");
     d.push(filename);
     String::from(d.as_os_str().to_str().unwrap())
+}
+
+#[test]
+fn test_import_save() {
+    let connection = setup_test_db();
+    assert_eq!(0, connection.count_saves().expect("Error counting saves"));
+    if let Err(msg) = connection
+        .import_save_from_file(INITIAL_DATA_IFID, test_data_path("valid_save.sav").as_str())
+    {
+        panic!("Error importing save: {}", msg);
+    }
+    assert_eq!(1, connection.count_saves().expect("Error counting saves"));
+
+    // Importing again should thrown an error due
+    if let Err(msg) = connection
+        .import_save_from_file(INITIAL_DATA_IFID, test_data_path("valid_save.sav").as_str())
+    {
+        if msg != "A save with this name already exists" {
+            panic!(
+                "Should have thrown a duplicate name error, but error was {}",
+                msg
+            );
+        }
+    } else {
+        panic!("Should have thrown a duplicate name error");
+    }
 }
 
 #[test]

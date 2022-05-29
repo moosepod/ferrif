@@ -17,7 +17,7 @@ use std::fs::File;
 use std::io::Read;
 use std::time::Instant;
 
-use super::ifdb::{DbSave, DbSaveError, IfdbConnection, SaveType};
+use super::ifdb::{DbSave, DbSaveError, IfdbConnection, SaveType, DEFAULT_SAVE_VERSION};
 use chrono::Utc;
 use clues_window::clues_window_handler;
 use command_output_window::{draw_command_output_window, CommandOutputWindowState};
@@ -37,7 +37,6 @@ use zmachine::vm::{VMState, GLOBAL_1, VM};
 use eguiio::{Eguiio, EguiioState};
 
 const AUTOSAVE_NAME: &str = "autosave";
-const DEFAULT_SAVE_VERSION: i64 = 2;
 
 // Avoid infinite loops caused by bugs by panicing if
 // too many instructions run without prompting
@@ -191,8 +190,7 @@ impl EguiTerp {
                         self.vm.set_state(VMState::Running);
                     }
                     SavesWindowEditState::Closed => {
-                        self.saves_state
-                            .open_for_restore(self.story_id as i64, self.ifid.clone());
+                        self.saves_state.open_for_restore(self.ifid.clone());
                         self.io.enabled = false;
                     }
                     _ => (),

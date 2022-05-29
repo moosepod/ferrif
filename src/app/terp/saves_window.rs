@@ -1,8 +1,9 @@
 use crate::app::ifdb::IfdbConnection;
 use eframe::egui;
-use native_dialog::FileDialog;
-
 use egui::{color::*, *};
+use native_dialog::FileDialog;
+use std::fs::{File, OpenOptions};
+use std::io::Write;
 // Color of the error messages
 const ERROR_COLOR: Color32 = Color32::from_rgb(255, 0, 0);
 // Color of the date on the save window
@@ -13,6 +14,7 @@ pub enum SavesWindowEditState {
     Closed,
     Saving,
     Restoring,
+    Exporting,
     Ok,
     Cancel,
 }
@@ -22,7 +24,6 @@ pub struct SavesWindowState {
     input_text: String,
     error_message: String,
     just_opened: bool,
-    story_id: Option<i64>,
     ifid: Option<String>,
 }
 
@@ -33,7 +34,6 @@ impl SavesWindowState {
             input_text: String::new(),
             error_message: String::new(),
             just_opened: true,
-            story_id: None,
             ifid: None,
         }
     }
@@ -55,15 +55,16 @@ impl SavesWindowState {
     pub fn is_open(&self) -> bool {
         matches!(
             self.edit_state,
-            SavesWindowEditState::Restoring | SavesWindowEditState::Saving
+            SavesWindowEditState::Restoring
+                | SavesWindowEditState::Saving
+                | SavesWindowEditState::Exporting
         )
     }
 
     /** Open this window, setting state to request a restore */
-    pub fn open_for_restore(&mut self, story_id: i64, ifid: String) {
+    pub fn open_for_restore(&mut self, ifid: String) {
         self.edit_state = SavesWindowEditState::Restoring;
         self.just_opened = true;
-        self.story_id = Some(story_id);
         self.ifid = Some(ifid);
     }
 
@@ -71,13 +72,14 @@ impl SavesWindowState {
     pub fn open_for_save(&mut self) {
         self.edit_state = SavesWindowEditState::Saving;
         self.just_opened = true;
-        self.story_id = None;
         self.ifid = None;
     }
 }
 
-fn handle_export_button(ui: &mut eframe::egui::Ui) {
-    if ui.button("Export").clicked() {}
+fn handle_export_button(ui: &mut eframe::egui::Ui, state: &mut SavesWindowState) {
+    if ui.button("Export").clicked() {
+        state.edit_state = SavesWindowEditState::Exporting;
+    }
 }
 
 fn handle_import_button(
@@ -90,24 +92,23 @@ fn handle_import_button(
             .add_filter("Save file", &["sav"])
             .show_open_single_file()
         {
-            if let Some(story_id) = state.story_id {
-                if let Some(ifid) = state.ifid.clone() {
-                    if let Some(path_str) = path.into_os_string().to_str() {
-                        match connection.import_save_from_file(story_id, ifid, path_str) {
-                            Err(msg) => {
-                                state.error_message = msg.clone();
-                            }
-                            Ok(save) => {
-                                state.input_text.push_str(save.name.as_str());
-                            }
+            if let Some(ifid) = state.ifid.clone() {
+                if let Some(path_str) = path.into_os_string().to_str() {
+                    match connection.import_save_from_file(ifid.as_str(), path_str) {
+                        Err(msg) => {
+                            state.error_message = msg.clone();
                         }
-                        state.edit_state = SavesWindowEditState::Restoring;
+                        Ok(save) => {
+                            state.input_text.push_str(save.name.as_str());
+                        }
                     }
+                    state.edit_state = SavesWindowEditState::Restoring;
                 }
             }
         }
     }
 }
+
 pub fn draw_saves_window(
     ifid: String,
     title: String,
@@ -121,95 +122,13 @@ pub fn draw_saves_window(
             .open(&mut is_open)
             .show(ctx, |ui| match state.edit_state {
                 SavesWindowEditState::Restoring => {
-                    ui.horizontal(|ui| {
-                        handle_export_button(ui);
-                        handle_import_button(ui, connection, state);
-                    });
-                    ui.separator();
-
-                    if !state.error_message.is_empty() {
-                        ui.add(Label::new(
-                            RichText::new(state.error_message.clone()).color(ERROR_COLOR),
-                        ));
-                    }
-
-                    match connection.fetch_manual_saves_for_ifid(ifid) {
-                        Ok(saves) => {
-                            let mut last_save_date = String::new();
-
-                            for save in saves {
-                                let save_date = save.formatted_saved_date();
-                                if save_date != last_save_date {
-                                    if !last_save_date.is_empty() {
-                                        // Add separator if this is not the first date
-                                        ui.separator();
-                                    }
-
-                                    ui.add(Label::new(
-                                        RichText::new(save_date.clone()).color(DATE_HEADER_COLOR),
-                                    ));
-
-                                    last_save_date = save_date.clone();
-                                }
-
-                                let mut checked = false;
-                                if ui
-                                    .checkbox(
-                                        &mut checked,
-                                        format!(
-                                            "{} ({})",
-                                            save.name.clone(),
-                                            save.formatted_saved_time()
-                                        ),
-                                    )
-                                    .clicked()
-                                {
-                                    state.input_text.push_str(save.name.as_str());
-                                    state.edit_state = SavesWindowEditState::Ok;
-                                }
-                            }
-                        }
-                        Err(msg) => {
-                            state
-                                .error_message
-                                .push_str(format!("Error loading notes: {}", msg).as_str());
-                        }
-                    };
+                    handle_restore(ui, ifid, connection, state);
                 }
                 SavesWindowEditState::Saving => {
-                    let mut save_game = false;
-
-                    let save_name = ui.add(
-                        egui::TextEdit::singleline(&mut state.input_text).hint_text("Save name"),
-                    );
-
-                    // First render pass after open should set focus
-                    if state.just_opened {
-                        state.just_opened = false;
-                        save_name.request_focus();
-                    } else if save_name.lost_focus()
-                        && save_name.ctx.input().key_down(egui::Key::Enter)
-                    {
-                        // Save game when enter pressed in save name field
-                        // see https://github.com/emilk/egui/issues/229
-                        save_game = true;
-                    }
-
-                    if !state.error_message.is_empty() {
-                        ui.add(Label::new(
-                            RichText::new(state.error_message.clone()).color(ERROR_COLOR),
-                        ));
-                    }
-                    if ui.button("Save").clicked() {
-                        save_game = true;
-                    }
-                    if save_game {
-                        if state.input_text.is_empty() {
-                            state.error_message.push_str("Please enter a save name.");
-                        } else {
-                            state.edit_state = SavesWindowEditState::Ok;
-                        }
-                    }
+                    handle_save(ui, ifid, connection, state);
+                }
+                SavesWindowEditState::Exporting => {
+                    handle_export(ui, ifid, connection, state);
                 }
                 _ => {
                     ui.label("Unhandled");
@@ -218,6 +137,179 @@ pub fn draw_saves_window(
         if !is_open {
             // User closed window
             state.edit_state = SavesWindowEditState::Cancel;
+        }
+    }
+}
+
+fn handle_export(
+    ui: &mut eframe::egui::Ui,
+    ifid: String,
+    connection: &IfdbConnection,
+    state: &mut SavesWindowState,
+) {
+    ui.label("Choose a save game to export:");
+    ui.separator();
+
+    match connection.fetch_manual_saves_for_ifid(ifid) {
+        Ok(saves) => {
+            let mut last_save_date = String::new();
+
+            for save in saves {
+                let save_date = save.formatted_saved_date();
+                if save_date != last_save_date {
+                    if !last_save_date.is_empty() {
+                        // Add separator if this is not the first date
+                        ui.separator();
+                    }
+
+                    ui.add(Label::new(
+                        RichText::new(save_date.clone()).color(DATE_HEADER_COLOR),
+                    ));
+
+                    last_save_date = save_date.clone();
+                }
+
+                let mut checked = false;
+                if ui
+                    .checkbox(
+                        &mut checked,
+                        format!("{} ({})", save.name.clone(), save.formatted_saved_time()),
+                    )
+                    .clicked()
+                {
+                    let path = FileDialog::new()
+                        .set_filename(format!("{}.sav", save.name.clone()).as_str())
+                        .add_filter("Save output file", &["sav"])
+                        .show_save_single_file()
+                        .unwrap();
+
+                    if let Some(path) = path {
+                        if let Some(path_str) = path.to_str() {
+                            match OpenOptions::new()
+                                .create(true)
+                                .write(true)
+                                .append(false)
+                                .open(path.clone())
+                            {
+                                Ok(mut file) => {
+                                    if let Err(msg) = file.write_all(&save.data) {
+                                        println!(
+                                            "Error writing to save file {:?}. {}.",
+                                            path_str, msg
+                                        )
+                                    }
+                                }
+                                Err(msg) => {
+                                    println!("Error writing to save file {:?}. {}.", path_str, msg)
+                                }
+                            }
+                        }
+                    }
+                    state.edit_state = SavesWindowEditState::Restoring;
+                    state.error_message = "Save exported successfully".to_string();
+                }
+            }
+        }
+        Err(msg) => {
+            state
+                .error_message
+                .push_str(format!("Error loading notes: {}", msg).as_str());
+        }
+    };
+}
+
+fn handle_restore(
+    ui: &mut eframe::egui::Ui,
+    ifid: String,
+    connection: &IfdbConnection,
+    state: &mut SavesWindowState,
+) {
+    ui.horizontal(|ui| {
+        handle_export_button(ui, state);
+        handle_import_button(ui, connection, state);
+    });
+    ui.separator();
+
+    if !state.error_message.is_empty() {
+        ui.add(Label::new(
+            RichText::new(state.error_message.clone()).color(ERROR_COLOR),
+        ));
+    }
+
+    match connection.fetch_manual_saves_for_ifid(ifid) {
+        Ok(saves) => {
+            let mut last_save_date = String::new();
+
+            for save in saves {
+                let save_date = save.formatted_saved_date();
+                if save_date != last_save_date {
+                    if !last_save_date.is_empty() {
+                        // Add separator if this is not the first date
+                        ui.separator();
+                    }
+
+                    ui.add(Label::new(
+                        RichText::new(save_date.clone()).color(DATE_HEADER_COLOR),
+                    ));
+
+                    last_save_date = save_date.clone();
+                }
+
+                let mut checked = false;
+                if ui
+                    .checkbox(
+                        &mut checked,
+                        format!("{} ({})", save.name.clone(), save.formatted_saved_time()),
+                    )
+                    .clicked()
+                {
+                    state.input_text.push_str(save.name.as_str());
+                    state.edit_state = SavesWindowEditState::Ok;
+                }
+            }
+        }
+        Err(msg) => {
+            state
+                .error_message
+                .push_str(format!("Error loading notes: {}", msg).as_str());
+        }
+    };
+}
+
+fn handle_save(
+    ui: &mut eframe::egui::Ui,
+    ifid: String,
+    connection: &IfdbConnection,
+    state: &mut SavesWindowState,
+) {
+    let mut save_game = false;
+
+    let save_name =
+        ui.add(egui::TextEdit::singleline(&mut state.input_text).hint_text("Save name"));
+
+    // First render pass after open should set focus
+    if state.just_opened {
+        state.just_opened = false;
+        save_name.request_focus();
+    } else if save_name.lost_focus() && save_name.ctx.input().key_down(egui::Key::Enter) {
+        // Save game when enter pressed in save name field
+        // see https://github.com/emilk/egui/issues/229
+        save_game = true;
+    }
+
+    if !state.error_message.is_empty() {
+        ui.add(Label::new(
+            RichText::new(state.error_message.clone()).color(ERROR_COLOR),
+        ));
+    }
+    if ui.button("Save").clicked() {
+        save_game = true;
+    }
+    if save_game {
+        if state.input_text.is_empty() {
+            state.error_message.push_str("Please enter a save name.");
+        } else {
+            state.edit_state = SavesWindowEditState::Ok;
         }
     }
 }

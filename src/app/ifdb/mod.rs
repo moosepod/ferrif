@@ -51,6 +51,8 @@ const RETRY_DELAY: Duration = Duration::new(0,1_000_000);
 // When importing from a zipfile, cancel import if this number of files is hit
 const MAX_SUPPORTED_ZIPFILE_SIZE: usize = 500;
 
+pub const DEFAULT_SAVE_VERSION: i64 = 2;
+
 pub struct IfdbConnection {
     connection: Connection,
     pub database_path: String,
@@ -1870,8 +1872,45 @@ impl IfdbConnection {
         }
     }
 
-    pub fn import_save_from_file(&self, story_id: i64, ifid: String, path: &str) -> Result<DbSave,String> {
-        Err("Didn't work".to_string())
+    /// Store a save file in the database. Note this doesn't do any validation as to whether the 
+    /// file is a valid save
+    pub fn import_save_from_file(&self,  ifid: &str, path_str: &str) -> Result<DbSave,String> {
+        let save_name = extract_filename_or_use_original(path_str).to_string();
+        if let Ok(Some(_)) = self.get_save(ifid.to_string(), save_name.clone()) {
+            return Err("A save with this name already exists".to_string());
+        }
+
+        match fs::read(Path::new(path_str)) {
+            Ok(data) => {
+               let mut dbsave = DbSave {
+                    dbid: 0,
+                    version: DEFAULT_SAVE_VERSION,
+                    ifid: ifid.to_string(),
+                    name: save_name,
+                    saved_when: format!("{}", Utc::now()),
+                    save_type: SaveType::Normal,
+                    data,
+                    pc: 0,
+                    text_buffer_address: None,
+                    parse_buffer_address: None,
+                    next_pc: None,
+                    left_status: None,
+                    right_status: None,
+                    latest_text: None,
+                    parent_id: 0,
+                    room_id: 0,
+                };
+
+                match self.store_save(&dbsave, false) {
+                    Ok(dbid) => {
+                        dbsave.dbid = dbid;
+                        Ok(dbsave)
+                    }, 
+                    Err(msg) => Err(format!("{:?}",msg))
+                }
+            },
+            Err(msg) => Err(format!("{}",msg))
+        }        
     }
 
     ///
