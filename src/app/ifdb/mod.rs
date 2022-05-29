@@ -1870,6 +1870,10 @@ impl IfdbConnection {
         }
     }
 
+    pub fn import_save_from_file(&self, story_id: i64, ifid: String, path: &str) -> Result<DbSave,String> {
+        Err("Didn't work".to_string())
+    }
+
     ///
     /// Sessions
     ///

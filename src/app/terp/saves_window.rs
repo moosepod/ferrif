@@ -1,5 +1,6 @@
 use crate::app::ifdb::IfdbConnection;
 use eframe::egui;
+use native_dialog::FileDialog;
 
 use egui::{color::*, *};
 // Color of the error messages
@@ -21,6 +22,8 @@ pub struct SavesWindowState {
     input_text: String,
     error_message: String,
     just_opened: bool,
+    story_id: Option<i64>,
+    ifid: Option<String>,
 }
 
 impl SavesWindowState {
@@ -30,6 +33,8 @@ impl SavesWindowState {
             input_text: String::new(),
             error_message: String::new(),
             just_opened: true,
+            story_id: None,
+            ifid: None,
         }
     }
 
@@ -55,18 +60,54 @@ impl SavesWindowState {
     }
 
     /** Open this window, setting state to request a restore */
-    pub fn open_for_restore(&mut self) {
+    pub fn open_for_restore(&mut self, story_id: i64, ifid: String) {
         self.edit_state = SavesWindowEditState::Restoring;
         self.just_opened = true;
+        self.story_id = Some(story_id);
+        self.ifid = Some(ifid);
     }
 
     /** Open this window, setting state to request a save */
     pub fn open_for_save(&mut self) {
         self.edit_state = SavesWindowEditState::Saving;
         self.just_opened = true;
+        self.story_id = None;
+        self.ifid = None;
     }
 }
 
+fn handle_export_button(ui: &mut eframe::egui::Ui) {
+    if ui.button("Export").clicked() {}
+}
+
+fn handle_import_button(
+    ui: &mut eframe::egui::Ui,
+    connection: &IfdbConnection,
+    state: &mut SavesWindowState,
+) {
+    if ui.button("Import").clicked() {
+        if let Ok(Some(path)) = FileDialog::new()
+            .add_filter("Save file", &["sav"])
+            .show_open_single_file()
+        {
+            if let Some(story_id) = state.story_id {
+                if let Some(ifid) = state.ifid.clone() {
+                    if let Some(path_str) = path.into_os_string().to_str() {
+                        match connection.import_save_from_file(story_id, ifid, path_str) {
+                            Err(msg) => {
+                                state.error_message = msg.clone();
+                            }
+                            Ok(save) => {
+                                state.input_text.push_str(save.name.as_str());
+                            }
+                        }
+                        state.edit_state = SavesWindowEditState::Restoring;
+                    }
+                }
+            }
+        }
+    }
+}
 pub fn draw_saves_window(
     ifid: String,
     title: String,
@@ -80,6 +121,12 @@ pub fn draw_saves_window(
             .open(&mut is_open)
             .show(ctx, |ui| match state.edit_state {
                 SavesWindowEditState::Restoring => {
+                    ui.horizontal(|ui| {
+                        handle_export_button(ui);
+                        handle_import_button(ui, connection, state);
+                    });
+                    ui.separator();
+
                     if !state.error_message.is_empty() {
                         ui.add(Label::new(
                             RichText::new(state.error_message.clone()).color(ERROR_COLOR),

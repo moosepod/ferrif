@@ -191,7 +191,8 @@ impl EguiTerp {
                         self.vm.set_state(VMState::Running);
                     }
                     SavesWindowEditState::Closed => {
-                        self.saves_state.open_for_restore();
+                        self.saves_state
+                            .open_for_restore(self.story_id as i64, self.ifid.clone());
                         self.io.enabled = false;
                     }
                     _ => (),
