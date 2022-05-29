@@ -2,7 +2,7 @@ use crate::app::ifdb::IfdbConnection;
 use eframe::egui;
 use egui::{color::*, *};
 use native_dialog::FileDialog;
-use std::fs::{File, OpenOptions};
+use std::fs::OpenOptions;
 use std::io::Write;
 // Color of the error messages
 const ERROR_COLOR: Color32 = Color32::from_rgb(255, 0, 0);
@@ -96,7 +96,7 @@ fn handle_import_button(
                 if let Some(path_str) = path.into_os_string().to_str() {
                     match connection.import_save_from_file(ifid.as_str(), path_str) {
                         Err(msg) => {
-                            state.error_message = msg.clone();
+                            state.error_message = msg;
                         }
                         Ok(save) => {
                             state.input_text.push_str(save.name.as_str());
@@ -125,7 +125,7 @@ pub fn draw_saves_window(
                     handle_restore(ui, ifid, connection, state);
                 }
                 SavesWindowEditState::Saving => {
-                    handle_save(ui, ifid, connection, state);
+                    handle_save(ui, state);
                 }
                 SavesWindowEditState::Exporting => {
                     handle_export(ui, ifid, connection, state);
@@ -276,12 +276,7 @@ fn handle_restore(
     };
 }
 
-fn handle_save(
-    ui: &mut eframe::egui::Ui,
-    ifid: String,
-    connection: &IfdbConnection,
-    state: &mut SavesWindowState,
-) {
+fn handle_save(ui: &mut eframe::egui::Ui, state: &mut SavesWindowState) {
     let mut save_game = false;
 
     let save_name =
