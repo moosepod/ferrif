@@ -11,7 +11,7 @@ mod story_load_window;
 mod terp;
 
 use crate::testmode_println;
-use eframe::{egui, epi};
+use eframe::egui;
 use egui::*;
 use egui::{Pos2, Vec2};
 use ifdb::{IfdbConnection, WindowDetails, WindowType};
@@ -58,12 +58,8 @@ pub struct FerrifApp {
 // Add a redo button
 // Terp needs to update text/status after the restore
 
-impl epi::App for FerrifApp {
-    fn name(&self) -> &str {
-        "ferrif"
-    }
-
-    fn update(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
+impl eframe::App for FerrifApp {
+    fn update(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         // The UI is set up so that either the story selector windows are open
         // or the terp windows are open
         // I played around with having multiple stories open, and it's neat, but kind of pointless
@@ -153,7 +149,7 @@ impl FerrifApp {
         );
     }
 
-    fn initialize(&mut self, frame: &epi::Frame) {
+    fn initialize(&mut self, frame: &mut eframe::Frame) {
         // On first time through loop, load main window size from db or create a default
         testmode_println!("TERP: Initializing window");
         match self
@@ -238,7 +234,7 @@ impl FerrifApp {
     /// Disabling clippy for compare, worst case is system identifies windows moved/resized when they
     /// did not
     #[allow(clippy::float_cmp)]
-    fn check_for_and_handle_resize(&mut self, ctx: &egui::Context, frame: &epi::Frame) {
+    fn check_for_and_handle_resize(&mut self, ctx: &egui::Context, frame: &mut eframe::Frame) {
         let mut main_window_size = ctx.available_rect();
         if main_window_size.max.x != self.main_window_details.width as f32
             || main_window_size.max.y != self.main_window_details.height as f32

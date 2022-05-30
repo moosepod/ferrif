@@ -68,7 +68,7 @@ fn start_terp(
             testmode_println!("INIT: Opening interpreter window");
             let app = FerrifApp::create(connection, play_id, use_defaults);
             let native_options = eframe::NativeOptions::default();
-            eframe::run_native(Box::new(app), native_options);
+            eframe::run_native("ferrif", native_options, Box::new(|_| Box::new(app)));
         }
         Err(msg) => {
             return Err(AppError::ConnectionError(format!(
