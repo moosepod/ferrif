@@ -1753,6 +1753,18 @@ impl IfdbConnection {
         }
     }
 
+    pub fn delete_save(&self, dbid: i64) -> Result<(), String> {
+        let result = || -> Result<(), rusqlite::Error> {
+            self.connection
+                .execute("DELETE FROM saves WHERE id=?1", params![dbid])?;
+            Ok(())
+        }();
+        match result {
+            Err(e) => Err(format!("SQL error: {:?}", e)),
+            Ok(()) => Ok(()),
+        }
+    }
+
     fn get_save_from_row(
         &self,
         ifid: String,

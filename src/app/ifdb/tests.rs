@@ -1291,7 +1291,7 @@ fn test_count_autosaves_for_story() {
 }
 
 #[test]
-fn test_get_save() {
+fn test_get_and_delete_save() {
     let connection = setup_test_db();
     let save = create_full_save(SaveType::Normal);
     connection.store_save(&save, false).expect("Error saving");
@@ -1311,6 +1311,14 @@ fn test_get_save() {
         assert_eq!(Some(String::from("Right Status")), dbsave.right_status);
         assert_eq!(Some(String::from("Latest Text")), dbsave.latest_text);
     }
+
+    if let Err(msg) = connection.delete_save(save.dbid) {
+        panic!("Error deleting save: {}", msg);
+    }
+    let dbsave = connection
+        .get_save_by_id(INITIAL_DATA_IFID.to_string(), save.dbid)
+        .expect("Error fetching save");
+    assert!(dbsave.is_none());
 }
 
 #[test]
