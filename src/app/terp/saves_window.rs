@@ -388,13 +388,11 @@ fn handle_save(ui: &mut eframe::egui::Ui, state: &mut SavesWindowState) {
 
 fn draw_messages(ui: &mut eframe::egui::Ui, state: &SavesWindowState) {
     if let Some(error_message) = state.error_message.clone() {
-        ui.add(Label::new(
-            RichText::new(error_message.clone()).color(ERROR_COLOR),
-        ));
+        ui.add(Label::new(RichText::new(error_message).color(ERROR_COLOR)));
         ui.separator();
     } else if let Some(status_message) = state.status_message.clone() {
         ui.add(Label::new(
-            RichText::new(status_message.clone()).color(STATUS_COLOR),
+            RichText::new(status_message).color(STATUS_COLOR),
         ));
         ui.separator();
     }
