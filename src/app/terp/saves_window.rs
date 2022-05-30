@@ -125,7 +125,7 @@ fn handle_import_button(
                             state.input_text.push_str(save.name.as_str());
                         }
                     }
-                    state.edit_state = SavesWindowEditState::Restoring;
+                    state.edit_state = SavesWindowEditState::Ok;
                 }
             }
         }
