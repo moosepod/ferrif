@@ -29,7 +29,7 @@ use theme::Theme;
 use transcript_window::{draw_transcript_window, TranscriptWindowState};
 
 use windows::{ButtonWindow, FerrifWindow};
-use zmachine::instructions::MemoryReader;
+use zmachine::instructions::{MemoryReader,ZmachineError};
 use zmachine::interfaces::TerpIO;
 use zmachine::quetzal::{queztal_data_to_bytes, QuetzalRestoreHandler};
 use zmachine::vm::{VMState, GLOBAL_1, VM};
@@ -178,6 +178,7 @@ impl EguiTerp {
                             self.restore_game(self.saves_state.get_save_name(), connection)
                         {
                             self.io.print_to_screen(msg.as_str());
+                            self.io.print_char('\n');
                         }
                         self.saves_state.close_and_reset_window();
                         self.io.enabled = true;
@@ -551,7 +552,15 @@ impl EguiTerp {
                             Err(msg) => Err(msg),
                             Ok(quetzal_data) => {
                                 if let Err(msg) = self.vm.restore_game(quetzal_data) {
-                                    Err(format!("{:?}", msg))
+                                    match msg {
+                                        ZmachineError::SaveReleaseNumberMismatch(_,_) |
+                                        ZmachineError::SaveSerialNumberMismatch(_) | 
+                                        ZmachineError::SaveChecksumMismatch(_,_) => {
+                                            Err("This save is from a different story or story version and cannot be restored.".to_string())
+                                        },
+                                        _ =>  Err(format!("{:?}", msg))
+                                    }
+                                   
                                 } else {
                                     // 8.1.6.3 -- after restore, unsplit window
                                     self.io.split_window(0);
