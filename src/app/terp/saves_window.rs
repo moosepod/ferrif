@@ -82,13 +82,13 @@ impl SavesWindowState {
         self.ifid = None;
     }
 
-    pub fn set_error_message(&mut self, msg: String) {
-        self.error_message = Some(msg);
+    pub fn set_error_message<S: Into<String>>(&mut self, msg: S) {
+        self.error_message = Some(msg.into());
         self.status_message = None;
     }
 
-    pub fn set_status_message(&mut self, msg: String) {
-        self.status_message = Some(msg);
+    pub fn set_status_message<S: Into<String>>(&mut self, msg: S) {
+        self.status_message = Some(msg.into());
         self.error_message = None;
     }
 }
@@ -289,9 +289,7 @@ fn handle_delete(
                         .clicked()
                     {
                         match connection.delete_save(save.dbid) {
-                            Ok(()) => {
-                                state.set_status_message("Save deleted successfully".to_string())
-                            }
+                            Ok(()) => state.set_status_message("Save deleted successfully"),
                             Err(msg) => {
                                 state.set_error_message(format!("Error deleting save: {}", msg))
                             }
@@ -381,7 +379,7 @@ fn handle_save(ui: &mut eframe::egui::Ui, state: &mut SavesWindowState) {
     }
     if save_game {
         if state.input_text.is_empty() {
-            state.set_error_message("Please enter a save name.".to_string());
+            state.set_error_message("Please enter a save name.");
         } else {
             state.edit_state = SavesWindowEditState::Ok;
         }
