@@ -1,3 +1,5 @@
+This repo has been migrated to https://tangled.org/moosepod.com/ferrif. Any further changes will occur there.
+
 # ferrif
 
 Rust-based Z-Machine interpreter that uses egui for a UI. 
